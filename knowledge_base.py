@@ -53,7 +53,6 @@ def process_with_gitingest(github_url: str) -> Tuple[str, str, str]:  # works li
         print('Ingestion error:', e)
         return "", "", ""
 
-    
 def handle_github_repo( github_url: Optional[str] = None) -> None:
     if not github_url:
         print('No url, ingestion Skipped')
@@ -113,10 +112,13 @@ def query_saver(query: str):
         json.dump({"query": query}, file, indent=4)
 
   
-def run_data_collection(user_inst: str, user_rep):
+def run_data_collection():
 # # Get user input
-    user_instruction = user_inst
-    user_response = user_rep
+    # user_instruction = user_inst
+    # user_response = user_rep
+
+    user_instruction = input('enter instructions:- ')
+    user_response = input('enter input:-')
 
     # Classify input
     result = classify_input(user_instruction, user_response)

@@ -31,10 +31,12 @@ def main():
     # Wait until a .txt file is available in the data directory
     wait_for_data(data_dir, ".txt", timeout=10)
 
-    # Step 2: Run RAG process (knowledge_retrieve.py)
+    # Step 2: Run RAG process (knowledge_retrieve.py)Summarize
     print("Running RAG process using knowledge_retrieve.py...")
     run_script("knowledge_retrieve.py")
 
+    print('Making posts using post_gen.py...')
+    run_script('post_gen.py')
     print("Process completed!")
 
 if __name__ == "__main__":
