@@ -53,12 +53,13 @@ def process_with_gitingest(github_url: str) -> Tuple[str, str, str]:  # works li
         print('Ingestion error:', e)
         return "", "", ""
 
-def handle_github_repo( github_url: Optional[str] = None) -> None:
+def handle_github_repo(github_url: Optional[str] = None) -> None:
     if not github_url:
         print('No url, ingestion Skipped')
         return
     summary, tree, content = process_with_gitingest(github_url)
     try:
+        os.makedirs('./data', exist_ok=True)
         with open('./data/results.txt', 'w', encoding='utf-8') as file:
             file.write(summary)
             file.write(tree)
@@ -71,60 +72,74 @@ def handle_github_repo( github_url: Optional[str] = None) -> None:
         
 
 # Function to handle general URLs
-def handle_url( url):
+def handle_url(url):
     loader = FireCrawlLoader(
-    api_key="fc-c3f9e0ff5ce8493683149061893753a0", url = url, mode="scrape"
+    api_key="fc-c3f9e0ff5ce8493683149061893753a0", url=url, mode="scrape"
     )
     pages = []
     for doc in loader.lazy_load():
         pages.append(doc)
+    
+    os.makedirs('./data', exist_ok=True)
     f = open('./data/results.txt', "w", encoding='utf-8')
     f.write((str(pages)))
     f.close()
 
 # Function to handle topics
 def handle_topic(instruction, query):
-    search = TavilySearchResults(max_results=5,search_depth="advanced",include_answer=True)
+    search = TavilySearchResults(max_results=5, search_depth="advanced", include_answer=True)
     search_result = search.invoke(instruction + ':-' + query)
+    
+    os.makedirs('./data', exist_ok=True)
     f = open('./data/results.txt', "w", encoding='utf-8')
     f.write((str(search_result)))
     f.close()
-    # Add logic for processing topics (e.g., search, generate content)
 
 # Get user input
 def process_classification_result(result: dict):
+    input_type = result["type"]
+    input_url = result["input"] if input_type in ["github_repo", "url"] else ""
 
-    if result["type"] == "github_repo":
+    if input_type == "github_repo":
         handle_github_repo(result["input"])
-    elif result["type"] == "url":
+    elif input_type == "url":
         handle_url(result["input"])
-    elif result["type"] == "topic":
+    elif input_type == "topic":
         handle_topic(result["instruction"], result["input"])
     else:
         print("Unknown input type.")
-    return result["instruction"], result['input']
+    
+    return result["instruction"], result['input'], input_type, input_url
 
 
-def query_saver(query: str):
+def query_saver(query: str, input_type: str, input_url: str):
     # Ensure the directory exists
     os.makedirs('./query', exist_ok=True)
     with open('./query/query.json', 'w', encoding='utf-8') as file:
-        json.dump({"query": query}, file, indent=4)
+        json.dump({
+            "query": query,
+            "input_type": input_type,
+            "input_url": input_url
+        }, file, indent=4)
 
   
-def run_data_collection():
-# # Get user input
-    # user_instruction = user_inst
-    # user_response = user_rep
-
-    user_instruction = input('enter instructions:- ')
-    user_response = input('enter input:-')
+def run_data_collection(user_inst=None, user_rep=None):
+    # Get user input
+    if user_inst and user_rep:
+        user_instruction = user_inst
+        user_response = user_rep
+    else:
+        user_instruction = input('enter instructions:- ')
+        user_response = input('enter input:-')
 
     # Classify input
     result = classify_input(user_instruction, user_response)
 
-    user_prompt, user_input = process_classification_result(result)
-    query_saver(user_prompt)
+    user_prompt, user_input, input_type, input_url = process_classification_result(result)
+    query_saver(user_prompt, input_type, input_url)
+    
+    # Return a message about the data collection
+    return f"Data collected successfully!\nType: {input_type}\nQuery: {user_prompt}"
 
 if __name__ == '__main__':
     run_data_collection()

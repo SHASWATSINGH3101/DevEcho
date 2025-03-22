@@ -10,6 +10,7 @@ from typing_extensions import Annotated
 from langgraph.graph import START, StateGraph
 from langchain_core.vectorstores import InMemoryVectorStore
 import json
+import os
 
 llm = ChatGroq(
             model='llama3-70b-8192',
@@ -40,11 +41,9 @@ _ = vector_store.add_documents(all_splits)
 print('indexing done')
 
 template ="""Use the following context to provide a clear and accurate answer to the question below.  
-- If the answer is not found in the context, say you don’t know—do not guess or make up an answer.  
+- If the answer is not found in the context, say you don't know—do not guess or make up an answer.  
 - Provide a thorough but concise answer in up to **Twenty sentences**.  
 - Include relevant details from the context to support your response.  
-
-
 
 **Context:**  
 {context}  
@@ -69,12 +68,6 @@ for i, document in enumerate(all_splits):
         document.metadata["section"] = "end"
 
 
-all_splits[0].metadata
-
-
-
-
-
 class Search(TypedDict):
     """Search query."""
 
@@ -91,9 +84,10 @@ class State(TypedDict):
     query: Search
     context: List[Document]
     answer: str
+    input_type: str  # Added to track the type of input
+    input_url: str   # Added to track the source URL
 
 
-# highlight-next-line
 def analyze_query(state: State):
     # Enhance the prompt with additional instructions for decomposition and validation.
     enhanced_instructions = (
@@ -125,18 +119,41 @@ def generate(state: State):
     messages = prompt.invoke({"question": state["question"], "context": docs_content})
     response = llm.invoke(messages)
     
+    # Get input type and URL from query.json if available
+    input_type = state.get("input_type", "")
+    input_url = state.get("input_url", "")
+    
+    try:
+        with open('./query/query.json', 'r', encoding='utf-8') as file:
+            query_data = json.load(file)
+            if "input_type" in query_data:
+                input_type = query_data["input_type"]
+            if "input_url" in query_data:
+                input_url = query_data["input_url"]
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+    
     # Save result to JSON
     result_data = {
         "query": state["question"],
         "retrieved_context": [doc.page_content for doc in state["context"]],
-        "answer": response.content
+        "answer": response.content,
+        "input_type": input_type,
+        "input_url": input_url
     }
 
+    # Ensure output directory exists
+    os.makedirs('./output', exist_ok=True)
+    
     with open('./output/result.json', 'w', encoding='utf-8') as file:
         json.dump(result_data, file, indent=4)
 
     print('Result saved to output/result.json')
-    return {"answer": response.content}
+    return {
+        "answer": response.content,
+        "input_type": input_type,
+        "input_url": input_url
+    }
 
 
 # highlight-start
@@ -147,15 +164,31 @@ graph = graph_builder.compile()
 
 
 def run_rag():
-# Load the query from query.json
-    with open('./query/query.json', 'r', encoding='utf-8') as file:
-        query_data = json.load(file)
+    # Load the query from query.json
+    input_type = ""
+    input_url = ""
+    question = ""
+    
+    try:
+        with open('./query/query.json', 'r', encoding='utf-8') as file:
+            query_data = json.load(file)
+            question = query_data.get("query", "")
+            input_type = query_data.get("input_type", "")
+            input_url = query_data.get("input_url", "")
+    except (FileNotFoundError, json.JSONDecodeError):
+        print("Error: query.json not found or invalid")
+        return
 
     # Stream the graph using the loaded query
     for step in graph.stream(
-        {"question": query_data["query"]},
+        {
+            "question": question,
+            "input_type": input_type,
+            "input_url": input_url
+        },
         stream_mode="updates",
     ):
         print(f"{step}\n\n----------------\n")
+        
 if __name__ == "__main__":
     run_rag()
