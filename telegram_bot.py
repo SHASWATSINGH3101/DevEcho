@@ -13,13 +13,18 @@ from tone_config import get_current_tone, set_tone, list_available_tones
 # Enable logging
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
+    level=logging.INFO,
+    handlers=[
+        logging.FileHandler("telegram_bot.log"),
+        logging.StreamHandler()
+    ]
 )
 logger = logging.getLogger(__name__)
 
-# Set your Telegram Bot Token
-TELEGRAM_BOT_TOKEN = 'YOUR_TELEGRAM_BOT_TOKEN_HERE'
+# Set your Telegram Bot Token - REPLACE THIS WITH YOUR ACTUAL TOKEN
+TELEGRAM_BOT_TOKEN = '7939620078:AAE3U1S37gmz4waSsJwZs2eHag5TtUFf3KM'  # Replace with your actual bot token
 
+# User states
 WAITING_FOR_INSTRUCTION = 1
 WAITING_FOR_INPUT = 2
 PROCESSING = 3
@@ -33,7 +38,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_states[user_id] = WAITING_FOR_INSTRUCTION
     
     await update.message.reply_text(
-        "Welcome to the Social Media Post Generator! 🚀\n\n"
+        "Welcome to DevEcho - Social Media Post Generator! 🚀\n\n"
         "This bot helps you create professional social media posts based on any content.\n\n"
         "Commands:\n"
         "/new - Start a new post generation\n"
@@ -44,7 +49,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send a message when the command /help is issued."""
     await update.message.reply_text(
-        "📚 *Social Media Post Generator Help* 📚\n\n"
+        "📚 *DevEcho Social Media Post Generator Help* 📚\n\n"
         "*Commands:*\n"
         "/new - Start a new post generation\n"
         "/tone - Change the tone of your posts\n"
@@ -183,31 +188,55 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 
                 # Format and send Twitter posts
                 if twitter_posts:
+                    # Split Twitter posts if too long
                     tweet_message = "🐦 *Twitter Posts:*\n\n"
                     for post in twitter_posts:
-                        tweet_message += f"*Draft {post['draft_number']}:*\n{post['content']}\n\n"
+                        tweet_content = f"*Draft {post['draft_number']}:*\n{post['content']}\n\n"
+                        
                         # Add sources if they exist
                         if post.get('sources') and len(post['sources']) > 0:
-                            tweet_message += "*Sources:*\n"
+                            tweet_content += "*Sources:*\n"
                             for source in post['sources']:
-                                tweet_message += f"- {source}\n"
-                            tweet_message += "\n"
+                                tweet_content += f"- {source}\n"
+                            tweet_content += "\n"
+                        
+                        # Check if adding this content would make the message too long
+                        if len(tweet_message + tweet_content) > 4000:
+                            # Send the current batch and start a new one
+                            await update.message.reply_text(tweet_message, parse_mode='Markdown')
+                            tweet_message = tweet_content
+                        else:
+                            tweet_message += tweet_content
                     
-                    await update.message.reply_text(tweet_message, parse_mode='Markdown')
+                    # Send any remaining content
+                    if tweet_message:
+                        await update.message.reply_text(tweet_message, parse_mode='Markdown')
                 
                 # Format and send LinkedIn posts
                 if linkedin_posts:
+                    # Split LinkedIn posts if too long
                     linkedin_message = "💼 *LinkedIn Posts:*\n\n"
                     for post in linkedin_posts:
-                        linkedin_message += f"*Draft {post['draft_number']}:*\n{post['content']}\n\n"
+                        linkedin_content = f"*Draft {post['draft_number']}:*\n{post['content']}\n\n"
+                        
                         # Add sources if they exist
                         if post.get('sources') and len(post['sources']) > 0:
-                            linkedin_message += "*Sources:*\n"
+                            linkedin_content += "*Sources:*\n"
                             for source in post['sources']:
-                                linkedin_message += f"- {source}\n"
-                            linkedin_message += "\n"
+                                linkedin_content += f"- {source}\n"
+                            linkedin_content += "\n"
+                        
+                        # Check if adding this content would make the message too long
+                        if len(linkedin_message + linkedin_content) > 4000:
+                            # Send the current batch and start a new one
+                            await update.message.reply_text(linkedin_message, parse_mode='Markdown')
+                            linkedin_message = linkedin_content
+                        else:
+                            linkedin_message += linkedin_content
                     
-                    await update.message.reply_text(linkedin_message, parse_mode='Markdown')
+                    # Send any remaining content
+                    if linkedin_message:
+                        await update.message.reply_text(linkedin_message, parse_mode='Markdown')
                 
                 # Send final message with tone information
                 current_tone = get_current_tone()
@@ -219,14 +248,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             else:
                 await processing_message.edit_text(
                     "❌ Error processing your content.\n"
-                    "Please try again with different content."
+                    "Please try again with different content.\n\n"
+                    "Use /new to start over."
                 )
         
         except Exception as e:
             logger.error(f"Error: {str(e)}")
             await processing_message.edit_text(
-                "❌ An error occurred while processing your request.\n"
-                "Please try again later."
+                f"❌ An error occurred while processing your request:\n"
+                f"{str(e)[:100]}...\n\n"
+                "Please try again later or with different content.\n"
+                "Use /new to start over."
             )
         
         # Reset state
@@ -235,21 +267,42 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 async def run_process(instruction, user_input):
     """Run the data collection and RAG process."""
     try:
+        # Make sure directories exist
+        os.makedirs('./data', exist_ok=True)
+        os.makedirs('./query', exist_ok=True)
+        os.makedirs('./output', exist_ok=True)
+        
         # Run data collection
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, lambda: run_data_collection(instruction, user_input))
         
+        # Wait a moment to ensure files are written
+        await asyncio.sleep(1)
+        
+        # Check if data was collected properly
+        if not os.path.exists('./data/results.txt'):
+            logger.error("Data collection failed - results.txt not found")
+            return False
+            
         # Run RAG
         await loop.run_in_executor(None, run_rag)
         
+        # Check if RAG output was generated
+        if not os.path.exists('./output/result.json'):
+            logger.error("RAG process failed - result.json not found")
+            return False
+            
         return True
     except Exception as e:
         logger.error(f"Error in run_process: {str(e)}")
-        return False
+        raise
 
 async def run_post_gen():
     """Run the post generation process."""
     try:
+        # Make sure config directory exists
+        os.makedirs('./config', exist_ok=True)
+        
         # Execute as a subprocess to avoid blocking
         loop = asyncio.get_event_loop()
         process = await loop.run_in_executor(
@@ -257,10 +310,19 @@ async def run_post_gen():
             lambda: subprocess.run(["python", "post_gen.py"], capture_output=True, text=True)
         )
         
+        # Log any stderr output
+        if process.stderr:
+            logger.error(f"Post generation stderr: {process.stderr}")
+            
+        # Check if output was generated properly
+        if not os.path.exists('./twitter_posts/twitterpost.json') or not os.path.exists('./linkedin_posts/linkedinpost.json'):
+            logger.error("Post generation failed - output files not found")
+            return False
+            
         return process.returncode == 0
     except Exception as e:
         logger.error(f"Error in run_post_gen: {str(e)}")
-        return False
+        raise
 
 async def load_posts(file_path):
     """Load posts from JSON file."""
@@ -268,9 +330,10 @@ async def load_posts(file_path):
         if os.path.exists(file_path):
             with open(file_path, 'r', encoding='utf-8') as file:
                 return json.load(file)
+        logger.warning(f"Post file not found: {file_path}")
         return []
     except Exception as e:
-        logger.error(f"Error loading posts: {str(e)}")
+        logger.error(f"Error loading posts from {file_path}: {str(e)}")
         return []
 
 def main() -> None:
@@ -290,6 +353,17 @@ def main() -> None:
     # Add message handler
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
+    # Create necessary directories
+    os.makedirs('./data', exist_ok=True)
+    os.makedirs('./query', exist_ok=True)
+    os.makedirs('./output', exist_ok=True)
+    os.makedirs('./config', exist_ok=True)
+    os.makedirs('./twitter_posts', exist_ok=True)
+    os.makedirs('./linkedin_posts', exist_ok=True)
+    
+    # Log startup
+    logger.info("Bot started!")
+    
     # Start the Bot
     application.run_polling()
 
