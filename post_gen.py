@@ -1,28 +1,36 @@
-import sqlite3
 import textwrap
+from typing import List, Optional, TypedDict
 from enum import Enum, auto
-from typing import List, Literal, Optional, TypedDict
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from pydantic import BaseModel, Field
 
-from IPython.display import Image, display
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_groq import ChatGroq
-from langchain_ollama import ChatOllama
 from langgraph.graph import END, StateGraph
 
 import re
-from pydantic import BaseModel, Field
 import json
 import os
+import logging
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[logging.FileHandler("post_gen.log"), logging.StreamHandler()]
+)
+logger = logging.getLogger(__name__)
+
+# Set random seed for reproducibility
 seed = np.random.seed(42)
 
+# Initialize the LLM (using Groq's llama3-70b-8192 model)
 llm = ChatGroq(
-    model= "llama3-70b-8192",
-    temperature= 0.7,
-    api_key= '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'
+    model="llama3-70b-8192",
+    temperature=0.7,
+    api_key='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'
 )
 
 # Define different tone prompts
@@ -67,38 +75,6 @@ Rewrite for maximum social media engagement:
 Use only the information provided in the text. Think carefully.
 """
 
-TWITTER_PROMPT = """
-Generate a high-engagement tweet from the given text:
-1. What problem does this solve?
-2. Focus on the main technical points/features
-3. Write a short, coherent paragraph (2-3 sentences max)
-4. Use natural, conversational language
-5. Optimize for virality: make it intriguing, relatable, or controversial
-6. Exclude emojis and hashtags
-
-{tone_instructions}
-
-Make sure to include sources at the end of the tweet if they're available, in a brief format.
-"""
-
-TWITTER_CRITIQUE_PROMPT = """
-You are a Tweet Critique Agent. Your task is to analyze tweets and provide actionable feedback to make them more engaging. Focus on:
-
-1. Clarity: Is the message clear and easy to understand?
-2. Hook: Does it grab attention in the first few words?
-3. Brevity: Is it concise while maintaining impact?
-4. Call-to-action: Does it encourage interaction or sharing?
-5. Tone: Is it appropriate for the intended audience and matches the requested tone?
-6. Storytelling: Does it evoke curiosity?
-7. Remove hype: Does it promise more than it delivers?
-8. Sources: Are sources properly included and formatted?
-
-Provide 2-3 specific suggestions to improve the tweet's engagement potential.
-Do not suggest hashtags. Keep your feedback concise and actionable.
-
-Your goal is to help the writer improve their social media writing skills and increase engagement with their posts.
-"""
-
 LINKEDIN_PROMPT = """
 Write a compelling LinkedIn post from the given text. Structure it as follows:
 
@@ -111,7 +87,7 @@ Write a compelling LinkedIn post from the given text. Structure it as follows:
 {tone_instructions}
 
 Maintain a professional, informative tone. Avoid emojis and hashtags.
-Keep the post concise (50-80 words) and relevant to the industry.
+Keep the post concise (150-300 words) and relevant to the industry.
 Focus on providing valuable insights or actionable takeaways that will resonate
 with professionals in the field.
 
@@ -142,9 +118,8 @@ Your goal is to help the writer improve their social media writing skills and in
 
 class Post(BaseModel):
     """A post written in different versions"""
-
     drafts: list = Field(default_factory=list)
-    feedback: Optional[str]
+    feedback: Optional[str] = None
 
 class Appstate(TypedDict):
     user_text: str
@@ -152,40 +127,19 @@ class Appstate(TypedDict):
     tone: str
     sources: list
     edit_text: str
-    tweet: str
-    linkedin_post: str
-    n_drafts: str
+    linkedin_post: Post
+    n_drafts: int
 
 def editor_node(state: Appstate):
+    """Process the input text to make it more engaging"""
     tone_instructions = TONE_PROMPTS.get(state['tone'], "")
     prompt = f"""text:{state['user_text']}""".strip()
     editor_prompt_with_tone = EDITOR_PROMPT.format(tone_instructions=tone_instructions)
     response = llm.invoke([SystemMessage(editor_prompt_with_tone), HumanMessage(prompt)])
     return {'edit_text': response.content}
 
-def tweet_writer_node(state: Appstate):
-    post = state['tweet']
-    tone_instructions = TONE_PROMPTS.get(state['tone'], "")
-    
-    # Prepare sources string
-    sources_text = ""
-    if state.get('sources') and len(state['sources']) > 0:
-        sources_text = "\n\nSources available to reference:\n" + "\n".join(state['sources'])
-    
-    feedback_prompt = ""
-    if post.feedback and post.drafts:
-        feedback_prompt = f"\nUse the feedback to improve it:\n{post.feedback}"
-    
-    prompt = f"""text:{state['edit_text']}{feedback_prompt}
-    Target audience: {state['target_audience']}
-    {sources_text}""".strip()
-    
-    twitter_prompt_with_tone = TWITTER_PROMPT.format(tone_instructions=tone_instructions)
-    response = llm.invoke([SystemMessage(twitter_prompt_with_tone), HumanMessage(prompt)])
-    post.drafts.append(response.content)
-    return {'tweet': post}
-
 def linkedin_writer_node(state: Appstate):
+    """Generate LinkedIn post drafts"""
     post = state['linkedin_post']
     tone_instructions = TONE_PROMPTS.get(state['tone'], "")
     
@@ -208,27 +162,8 @@ def linkedin_writer_node(state: Appstate):
     post.drafts.append(response.content)
     return {'linkedin_post': post}
 
-def critique_tweet_node(state: Appstate):
-    post = state["tweet"]
-    
-    # Ensure drafts exist before accessing
-    if post.drafts:
-        prompt = f"""Full post:```{state["edit_text"]}```
-        Suggested tweet (critique this):```{post.drafts[-1]}```
-        Target audience: {state["target_audience"]}
-        Requested tone: {state["tone"]}""".strip()
-        
-        response = llm.invoke(
-            [SystemMessage(TWITTER_CRITIQUE_PROMPT), HumanMessage(prompt)]
-        )
-        post.feedback = response.content
-    else:
-        # Handle case where no drafts exist yet
-        post.feedback = "No draft available to critique yet."
-    
-    return {"tweet": post}
-
 def critique_linkedin_node(state: Appstate):
+    """Provide feedback on the LinkedIn post drafts"""
     post = state['linkedin_post']
 
     # Ensure drafts exist before accessing
@@ -249,15 +184,16 @@ def critique_linkedin_node(state: Appstate):
     return {'linkedin_post': post}
 
 def supervisor_node(state: Appstate):
+    """Monitor the state and pass it through"""
     return state
 
-def should_rewrite(state: Appstate)-> Literal[['linkedin_critique', 'tweet_critique'], END]:
-    tweet = state['tweet']
+def should_rewrite(state: Appstate):
+    """Decide if more drafts are needed"""
     linkedin_post = state['linkedin_post']
     n_drafts = state['n_drafts']
-    if len(tweet.drafts) >= n_drafts and len(linkedin_post.drafts)>= n_drafts:
+    if len(linkedin_post.drafts) >= n_drafts:
         return END
-    return ['linkedin_critique', 'tweet_critique']
+    return ['linkedin_critique']
 
 def extract_sources(result_json):
     """Extract sources from the result.json file"""
@@ -281,110 +217,110 @@ def extract_sources(result_json):
             
     return sources
 
-graph = StateGraph(Appstate)
+def get_current_tone():
+    """Get the current tone from configuration file"""
+    tone = "professional"  # Default tone
+    try:
+        with open('./config/tone.json', 'r', encoding='utf-8') as tone_file:
+            tone_data = json.load(tone_file)
+            tone = tone_data.get("tone", "professional")
+    except (FileNotFoundError, json.JSONDecodeError):
+        # Create the tone.json file with default tone
+        os.makedirs('./config', exist_ok=True)
+        with open('./config/tone.json', 'w', encoding='utf-8') as tone_file:
+            json.dump({"tone": tone}, tone_file, indent=4)
+    return tone
 
-graph.add_node('editor', editor_node)
-graph.add_node('tweet_writer', tweet_writer_node)
-graph.add_node('tweet_critique', critique_tweet_node)
-graph.add_node('linkedin_writer', linkedin_writer_node)
-graph.add_node('linkedin_critique', critique_linkedin_node)
-graph.add_node('supervisor', supervisor_node)
-
-graph.add_edge('editor', 'tweet_writer')
-graph.add_edge('editor','linkedin_writer')
-
-graph.add_edge('tweet_writer', 'supervisor')
-graph.add_edge('linkedin_writer', 'supervisor')
-graph.add_conditional_edges('supervisor', should_rewrite)
-
-graph.add_edge('tweet_critique', 'tweet_writer')
-graph.add_edge('linkedin_critique', 'linkedin_writer')
-
-graph.set_entry_point('editor')
-
-app = graph.compile()
-
-# Load data from result.json
-with open('./output/result.json', 'r', encoding='utf-8') as file:
-    data = json.load(file)
-
-# Extract retrieved context and format it into a single string
-retrieved_context = "\n\n".join(data["retrieved_context"])
-answer = data["answer"]
-
-# Try to extract sources
-sources = extract_sources(data)
-
-# Save input_type and input_url in result.json if they exist
-if "input_type" not in data and "type" in data:
-    data["input_type"] = data["type"]
-    with open('./output/result.json', 'w', encoding='utf-8') as file:
-        json.dump(data, file, indent=4)
-
-# Config settings
-config = {"configurable": {"thread_id": 42}}
-
-# Get tone from tone.json if it exists, otherwise use "professional"
-tone = "professional"
-try:
-    with open('./config/tone.json', 'r', encoding='utf-8') as tone_file:
-        tone_data = json.load(tone_file)
-        tone = tone_data.get("tone", "professional")
-except (FileNotFoundError, json.JSONDecodeError):
-    # Create the tone.json file with default tone
-    os.makedirs('./config', exist_ok=True)
-    with open('./config/tone.json', 'w', encoding='utf-8') as tone_file:
-        json.dump({"tone": tone}, tone_file, indent=4)
-
-state = app.invoke(
-    {
-        "user_text": answer,  # Use the answer from RAG
-        "target_audience": "AI/ML engineers and researchers, Data Scientists",
-        "tone": tone,  # Use the tone from config
-        "sources": sources,  # Add extracted sources
-        "tweet": Post(drafts=[], feedback=None),
-        "linkedin_post": Post(drafts=[], feedback='Add Sources'),
-        "n_drafts": 3,
-    },
-    config=config,
-)
-
-# Prepare output data for LinkedIn posts
-linkedin_output_data = []
-for i, draft in enumerate(state["linkedin_post"].drafts):
-    draft_info = {
-        "draft_number": i + 1,
-        "content": textwrap.fill(draft, 80),
-        "tone": tone,
-        "sources": sources
-    }
-    linkedin_output_data.append(draft_info)
-
-# Prepare output data for Twitter posts
-twitter_output_data = []
-for i, draft in enumerate(state["tweet"].drafts):
-    draft_info = {
-        "draft_number": i + 1,
-        "content": textwrap.fill(draft, 80),
-        "tone": tone,
-        "sources": sources
-    }
-    twitter_output_data.append(draft_info)
-
-# Ensure the output directories exist
-os.makedirs('./linkedin_posts', exist_ok=True)
-os.makedirs('./twitter_posts', exist_ok=True)
-
-# Save LinkedIn posts
-with open('./linkedin_posts/linkedinpost.json', 'w', encoding='utf-8') as json_file:
-    json.dump(linkedin_output_data, json_file, indent=4)
-
-# Save Twitter posts
-with open('./twitter_posts/twitterpost.json', 'w', encoding='utf-8') as json_file:
-    json.dump(twitter_output_data, json_file, indent=4)
-
-print("Posts generated and saved successfully!")
+def main():
+    """Main function to run the LinkedIn post generation process"""
+    try:
+        logger.info("Starting LinkedIn post generation")
+        
+        # Create necessary directories
+        os.makedirs('./output', exist_ok=True)
+        os.makedirs('./config', exist_ok=True)
+        os.makedirs('./linkedin_posts', exist_ok=True)
+        
+        # Load data from result.json
+        with open('./output/result.json', 'r', encoding='utf-8') as file:
+            data = json.load(file)
+        
+        # Extract retrieved context and format it into a single string
+        retrieved_context = "\n\n".join(data["retrieved_context"])
+        answer = data["answer"]
+        
+        # Try to extract sources
+        sources = extract_sources(data)
+        
+        # Save input_type and input_url in result.json if they exist
+        if "input_type" not in data and "type" in data:
+            data["input_type"] = data["type"]
+            with open('./output/result.json', 'w', encoding='utf-8') as file:
+                json.dump(data, file, indent=4)
+        
+        # Get tone from configuration
+        tone = get_current_tone()
+        
+        # Setup LangGraph
+        graph = StateGraph(Appstate)
+        
+        # Add nodes
+        graph.add_node('editor', editor_node)
+        graph.add_node('linkedin_writer', linkedin_writer_node)
+        graph.add_node('linkedin_critique', critique_linkedin_node)
+        graph.add_node('supervisor', supervisor_node)
+        
+        # Add edges
+        graph.add_edge('editor', 'linkedin_writer')
+        graph.add_edge('linkedin_writer', 'supervisor')
+        graph.add_conditional_edges('supervisor', should_rewrite)
+        graph.add_edge('linkedin_critique', 'linkedin_writer')
+        
+        # Set entry point
+        graph.set_entry_point('editor')
+        
+        # Compile the graph
+        app = graph.compile()
+        
+        # Config settings
+        config = {"configurable": {"thread_id": 42}}
+        
+        # Invoke the graph with initial state
+        logger.info(f"Invoking LangGraph with tone: {tone}")
+        state = app.invoke(
+            {
+                "user_text": answer,  # Use the answer from RAG
+                "target_audience": "AI/ML engineers and researchers, Data Scientists",
+                "tone": tone,  # Use the tone from config
+                "sources": sources,  # Add extracted sources
+                "linkedin_post": Post(drafts=[], feedback='Add Sources'),
+                "n_drafts": 3,
+            },
+            config=config,
+        )
+        
+        # Prepare output data for LinkedIn posts
+        linkedin_output_data = []
+        for i, draft in enumerate(state["linkedin_post"].drafts):
+            draft_info = {
+                "draft_number": i + 1,
+                "content": textwrap.fill(draft, 80),
+                "tone": tone,
+                "sources": sources
+            }
+            linkedin_output_data.append(draft_info)
+        
+        # Save LinkedIn posts
+        with open('./linkedin_posts/linkedinpost.json', 'w', encoding='utf-8') as json_file:
+            json.dump(linkedin_output_data, json_file, indent=4)
+        
+        logger.info(f"Generated {len(linkedin_output_data)} LinkedIn posts successfully")
+        return 0
+        
+    except Exception as e:
+        logger.error(f"Error in post generation: {str(e)}", exc_info=True)
+        return 1
 
 if __name__ == "__main__":
-    # This will execute only when run directly, not when imported
-    pass
+    exit_code = main()
+    exit(exit_code)
