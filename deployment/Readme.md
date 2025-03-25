@@ -118,20 +118,20 @@ or through the Telegram bot with `/tone`.
 ---
 ## Deployment
 
-### **1 Define the Procfile**
+### **1:- Define the Procfile**
 Add a `Procfile` in the `app/` directory (already included):
 ```
 worker: python telegram_bot.py
 ```
 
 ---
-### **2 Configure Service**
+### **2:- Configure Service**
 - Railway will automatically detect the `Procfile` and deploy the Telegram bot.
 - Ensure that the port is correctly set if required for any other services.
 
 ---
 
-### **3 Deploy and Monitor**
+### **3:- Deploy and Monitor**
 - Click **Deploy** and monitor the logs to check for successful deployment.
 - The Telegram bot should now be live and operational.
 
