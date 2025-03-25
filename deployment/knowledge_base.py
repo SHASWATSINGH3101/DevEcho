@@ -4,13 +4,20 @@ from langchain_community.document_loaders.firecrawl import FireCrawlLoader
 from typing import Tuple, Optional, List 
 
 from gitingest import ingest
-import os
 import re
 from gitingest import ingest_async
 import asyncio
 import json
 
-os.environ['TAVILY_API_KEY'] = ''
+from dotenv import load_dotenv
+import os
+
+# Load .env file
+load_dotenv()
+
+# Use os.getenv() to avoid KeyError
+TAVILY_API_KEY = os.getenv('TAVILY_API_KEY')
+FIRECRAWL_API_KEY = os.getenv('FIRECRAWL_API_KEY')
 
 def classify_input(user_instruction: str, user_input: str) -> dict:
     url_pattern = re.compile(
@@ -102,7 +109,7 @@ def handle_github_repo(github_url: Optional[str] = None) -> None:
 # Function to handle general URLs
 async def handle_url_async(url):
     loader = FireCrawlLoader(
-    api_key="FIRECRWAL_API_KEY", url=url, mode="scrape"
+    api_key=FIRECRAWL_API_KEY, url=url, mode="scrape"
     )
     pages = []
     for doc in loader.lazy_load():
@@ -116,7 +123,7 @@ async def handle_url_async(url):
 # Synchronous version for backward compatibility
 def handle_url(url):
     loader = FireCrawlLoader(
-    api_key="FIRECRWAL_API_KEY", url=url, mode="scrape"
+    api_key=FIRECRAWL_API_KEY, url=url, mode="scrape"
     )
     pages = []
     for doc in loader.lazy_load():

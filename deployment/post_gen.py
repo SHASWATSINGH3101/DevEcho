@@ -16,6 +16,15 @@ import os
 import logging
 import pyshorteners
 
+from dotenv import load_dotenv
+import os
+
+# Load .env file
+load_dotenv()
+
+# Use os.getenv() to avoid KeyError
+GROQ_API_KEY= os.getenv('GROQ_API_KEY')
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -31,7 +40,7 @@ seed = np.random.seed(42)
 llm = ChatGroq(
     model="llama3-70b-8192",
     temperature=0.7,
-    api_key='GROQ_API_KEY'
+    api_key=GROQ_API_KEY
 )
 
 # Define different tone prompts

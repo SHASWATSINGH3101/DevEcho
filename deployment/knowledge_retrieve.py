@@ -13,6 +13,16 @@ import os
 import logging
 import time
 
+
+from dotenv import load_dotenv
+import os
+
+# Load .env file
+load_dotenv()
+
+# Use os.getenv() to avoid KeyError
+GROQ_API_KEY= os.getenv('GROQ_API_KEY')
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -49,7 +59,7 @@ class RAGPipeline:
             model='llama3-70b-8192',
             temperature=0.7,
             max_tokens=1024,
-            api_key='GROQ_API_KEY'
+            api_key=GROQ_API_KEY
         )
 
         # Initialize embeddings
