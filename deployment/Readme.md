@@ -119,7 +119,7 @@ or through the Telegram bot with `/tone`.
 ## Deployment
 
 ### **1:- Define the Procfile**
-Add a `Procfile` in the `app/` directory (already included):
+Add a `Procfile` in the `deployment/` directory (already included):
 ```
 worker: python telegram_bot.py
 ```
