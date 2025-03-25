@@ -13,6 +13,15 @@ from post_gen import generate_linkedin_posts  # Updated to accept parameters (se
 from tone_config import set_tone, get_current_tone, list_available_tones
 from linkedin import get_user_info, post_to_linkedin  # New LinkedIn module import
 
+from dotenv import load_dotenv
+import os
+
+# Load .env file
+load_dotenv()
+
+# Use os.getenv() to avoid KeyError
+BOT_TOKEN = os.getenv('BOT_TOKEN')
+
 # Configure logging
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -335,7 +344,7 @@ def main():
     os.makedirs('./config', exist_ok=True)
     os.makedirs('./linkedin_posts', exist_ok=True)
     
-    application = Application.builder().token("BOT_TOKEN").build()
+    application = Application.builder().token(BOT_TOKEN).build()
     
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
