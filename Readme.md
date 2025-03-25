@@ -7,7 +7,7 @@
 **Devecho** is an AI-powered social media assistant designed to generate engaging LinkedIn posts based on user-provided content. It automates data collection, retrieval, and post-generation using AI-driven techniques and multiple autonomous AI agents that collaborate to optimize the content. This combination of intelligent agents and advanced retrieval methods enables users to create high-quality content efficiently.
 
 ## Demo Video  
-📺 **Watch Guardian-Eye.AI in action:**  
+📺 **Watch Devecho in action:**  
 <a href="https://youtu.be/mvh30SpOpm0">
     <img src='https://github.com/SHASWATSINGH3101/DevEcho/blob/main/assets/photo_5984682742954178568_y-modified.png' width="300">
 </a>
