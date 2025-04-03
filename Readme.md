@@ -147,7 +147,7 @@ This project is licensed under the **MIT License**.
 To cite this repository in publications:
 
 ```bibtex
-@misc{GUARDIAN-EYE.AI,
+@misc{CSVision,
   author = {SHASWATSINGH3101},
   title = {DevEcho},
   year = {2025},
